@@ -131,6 +131,8 @@ class MobileNetV2(BaseBackbone):
                  widen_factor=1.,
                  out_indices=(7, ),
                  frozen_stages=-1,
+                 frozen_except_BN=False,
+                 frozen_except_BN_accum=False,
                  conv_cfg=None,
                  norm_cfg=dict(type='BN'),
                  act_cfg=dict(type='ReLU6'),
@@ -156,6 +158,8 @@ class MobileNetV2(BaseBackbone):
                              f'But received {frozen_stages}')
         self.out_indices = out_indices
         self.frozen_stages = frozen_stages
+        self.frozen_except_BN = frozen_except_BN
+        self.frozen_except_BN_accum = frozen_except_BN_accum
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.act_cfg = act_cfg
@@ -246,14 +250,33 @@ class MobileNetV2(BaseBackbone):
         return tuple(outs)
 
     def _freeze_stages(self):
-        if self.frozen_stages >= 0:
-            for param in self.conv1.parameters():
+        import numpy as np
+
+        if self.frozen_except_BN:
+            total_param = 0
+            BN_param = 0
+            for name, param in self.named_parameters():
+                total_param += np.product(np.array(param.shape))
+                if not 'bn' in name:
+                    param.requires_grad = False
+                else:
+                    BN_param += np.product(np.array(param.shape))
+                    # print(name)
+            # print("total: ", total_param)
+            # print("BN: ", BN_param)
+            # exit(0)
+        elif self.frozen_except_BN_accum:
+            for param in self.parameters():
                 param.requires_grad = False
-        for i in range(1, self.frozen_stages + 1):
-            layer = getattr(self, f'layer{i}')
-            layer.eval()
-            for param in layer.parameters():
-                param.requires_grad = False
+        else:
+            if self.frozen_stages >= 0:
+                for param in self.conv1.parameters():
+                    param.requires_grad = False
+            for i in range(1, self.frozen_stages + 1):
+                layer = getattr(self, f'layer{i}')
+                layer.eval()
+                for param in layer.parameters():
+                    param.requires_grad = False
 
     def train(self, mode=True):
         super(MobileNetV2, self).train(mode)
